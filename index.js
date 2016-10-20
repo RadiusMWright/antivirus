@@ -33,8 +33,10 @@ var error = function(a) {
 // handleErr : Engine -> Error -> Void
 var handleErr = R.curry(function(engine, err) {
   error(err);
+  error("UNEXPECTED MESSAGE - will delete: " + JSON.stringify(this.message));
 
-  Promise.resolve(R.identity(err))
+  Promise.resolve(R.identity(this.message))
+  .then(SQS.getMessageHandle)
   .then(SQS.deleteMessage)
   .then(loop(engine))
   .catch(exit);
@@ -62,8 +64,9 @@ var fetchFromS3 = R.compose(S3.fetchObject, S3.details);
 
 // poll : Engine -> Promise Void
 var poll = function(engine) {
-  return SQS.fetchMessages()
+  return SQS.fetchMessages().bind({})
   .map(function(message) {
+    this.message = message
     return Promise.resolve(R.identity(message))
     .then(SQS.messageContent)
     .then(fetchFromS3)
