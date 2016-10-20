@@ -33,14 +33,22 @@ var error = function(a) {
 // handleErr : Engine -> Error -> Void
 var handleErr = R.curry(function(engine, err) {
   error(err);
-  error("UNEXPECTED MESSAGE - will delete: " + JSON.stringify(this.message));
 
-  Promise.resolve(R.identity(this.message))
-  .then(SQS.getMessageHandle)
-  .then(SQS.deleteMessage)
+  Promise.resolve(R.identity(err))
   .then(loop(engine))
   .catch(exit);
 });
+
+// handleSyntaxErr : Message -> Error -> Void
+var handleSyntaxErr = R.curry(function(message, err) {
+  error(err);
+  error("SYNTAX ERROR - deleting message: " + JSON.stringify(message));
+
+  Promise.resolve(R.identity(message))
+  .then(SQS.getMessageHandle)
+  .then(SQS.deleteMessage);
+});
+
 
 var exit = function() {
   process.exit(1);
@@ -64,9 +72,8 @@ var fetchFromS3 = R.compose(S3.fetchObject, S3.details);
 
 // poll : Engine -> Promise Void
 var poll = function(engine) {
-  return SQS.fetchMessages().bind({})
+  return SQS.fetchMessages()
   .map(function(message) {
-    this.message = message
     return Promise.resolve(R.identity(message))
     .then(SQS.messageContent)
     .then(fetchFromS3)
@@ -74,7 +81,8 @@ var poll = function(engine) {
     .then(clamp.scanFile(engine))
     .then(fops.removeFile)
     .then(SNS.sendScanResults)
-    .then(SQS.deleteMessage);
+    .then(SQS.deleteMessage)
+    .catch(handleSyntaxErr(message));
   })
   .then(log)
   .then(loop(engine))
